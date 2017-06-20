@@ -28,6 +28,100 @@
 
 using namespace llvm;
 
+//mycode
+struct node
+{
+        int Opcode;
+        int count;
+        node *next;
+};
+typedef struct node *Node;
+
+class HashTable
+{
+        Node table[50];
+        public :
+                int Hash(int);
+                void Insert(int);
+                void Display();
+        HashTable()
+        {
+                int i;
+                for(i=0; i<50; i++)
+                        table[i] = NULL;
+        }
+
+};
+
+int HashTable::Hash(int data)
+{
+        float sum=0, result, count = 0;
+        int i, res;
+        for(i=0; data!=0 ; i++)
+        {
+                sum += data%10;
+                data/=10;
+                count++;
+        }
+        result = sum/count;
+        res = floor(result);
+        res %= 50;
+	return res;
+}
+
+void HashTable::Insert(int op)
+{
+        Node newnode = new node;
+        Node top;
+        int index;
+
+        index = Hash(op);
+
+        if(table[index] == NULL)
+        {
+                table[index] = newnode;
+                newnode->next = NULL;
+                newnode->count = 1;
+                newnode->Opcode = op;
+                return;
+        }
+        else
+        {
+                Node prev;
+                top = table[index];
+                while(top != NULL)
+                {
+                        prev = top;
+                        if(top->Opcode == op)
+                        {
+                                top->count++;
+                                return;
+                        }
+                        top = top->next;
+                }
+                prev->next = newnode;
+                newnode->next = NULL;
+                newnode->count = 1;
+                newnode->Opcode = op;
+                return;
+        }
+}
+void HashTable::Display()
+{
+        int  i;
+        Node top;
+        for(i=0; i<50; i++)
+        {
+                top = table[i];
+                while(top!=NULL)
+                {
+                        errs()<<"\nNumber of occurences of "<<top->Opcode<<" is : "<<top->count;
+                        top = top->next;
+                }
+        }
+}
+//mycode ends
+
 typedef std::pair<std::vector<unsigned char>, std::vector<const char *>>
     ByteArrayTy;
 
@@ -41,6 +135,9 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
   // Disassemble it to strings.
   uint64_t Size;
   uint64_t Index;
+
+  unsigned Opcode;
+  HashTable t;
 
   for (Index = 0; Index < Bytes.first.size(); Index += Size) {
     MCInst Inst;
@@ -70,10 +167,12 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
 
     case MCDisassembler::Success:
       Streamer.EmitInstruction(Inst, STI);
+      Opcode = Inst.getOpcode();
+      t.Insert(Opcode);
       break;
     }
   }
-
+  t.Display();
   return false;
 }
 
