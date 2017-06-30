@@ -11,13 +11,15 @@
 // hexadecimal, from standard input or from a file.
 //
 //===----------------------------------------------------------------------===//
-
 #include "Disassembler.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -29,140 +31,128 @@
 using namespace llvm;
 
 //node structure for hash table
-struct node
-{
-        unsigned Opcode[WindowSize]; 
-        int count;
-        node *next;
+struct node{
+ unsigned Opcode[WindowSize]; 
+ std::string Name[WindowSize];
+ int count;
+ node *next;
 };
 typedef struct node *Node;
 
-class HashTable
-{
-        Node table[50];
-        public :
-                int Hash(unsigned[]);
-                void Insert(unsigned[]);
-                void Display();
-        HashTable()
-        {
-                int i;
-		//initialise each bucket to NULL
-                for(i=0; i<50; i++)
-                        table[i] = NULL;
-        }
-
+class HashTable{
+ Node table[50];
+ public :
+  int Hash(unsigned[]);
+  void Insert(unsigned[], std::string[]);
+  void Display();
+  HashTable(){
+    int i;
+    //initialise each bucket to NULL
+    for(i=0; i<50; i++)
+     table[i] = NULL;
+  }
 };
 
 //hash function
-int HashTable::Hash(unsigned Op[])
-{
-	float sum[WindowSize], result=0,sumcount,prodsum, count[WindowSize];
-        int res,j;
-	unsigned newOp[WindowSize];
-	for(j=0; j<WindowSize; j++)
-	{
-		count[j]=0;
-		newOp[j] = Op[j];
-	        while(newOp[j]!=0)
-        	{
-			sum[j] = newOp[j]%10;
-			newOp[j]/=10;
-			count[j]++;
-        	}
-	}
-	sumcount = 0;
-	prodsum = 1;
-	for(j=0; j<WindowSize ; j++){
-        	sumcount += count[j];
-		prodsum *= sum[j];
-	}
-	res = prodsum/sumcount;
-        res = floor(result);
-        res %= 50;
-	return res;//returns index
+int HashTable::Hash(unsigned Op[]){
+ float sum[WindowSize], result=0,sumcount,prodsum, count[WindowSize];
+ int res,j;
+ unsigned newOp[WindowSize];
+ for(j=0; j<WindowSize; j++){
+  count[j]=0;
+  newOp[j] = Op[j];
+  while(newOp[j]!=0){
+   sum[j] = newOp[j]%10;
+   newOp[j]/=10;
+   count[j]++;
+  }
+ }
+ sumcount = 0;
+ prodsum = 1;
+ for(j=0; j<WindowSize ; j++){
+  sumcount += count[j];
+  prodsum *= sum[j];
+ }
+ res = prodsum/sumcount;
+ res = floor(result);
+ res %= 50;
+ return res;//returns index
 }
 
-void HashTable::Insert(unsigned op[])
-{
-        Node newnode = new node;
-        Node top;
-        int index, i, flag = 1;
-
-        index = Hash(op);
-	//if node is NULL -> indicates empty list
-        if(table[index] == NULL)
-        {
-		//add newnode and copy all opcodes to it
-                table[index] = newnode;
-                newnode->next = NULL;
-                newnode->count = 1;
-                for(i=0; i<WindowSize ; i++)
-			newnode->Opcode[i] = op[i];
-		
-                return;
-        }
-        else
-        {
-		//if node contains certain other opcode values
-                Node prev;
-                top = table[index];
-                while(top != NULL)
-                {
-			//if current opcodes are found
-			flag = 1;
-                        prev = top;
-                        for(i=0; i<WindowSize; i++)
-                        {
-				if(top->Opcode[i] != op[i])
-				{
-					flag = 0;
-					break;
-				}
-			}
-			if(flag)
-			{
-                                top->count++; //increment counter
-                                return;
-                        }
-                        top = top->next; //if current opcodes are not found, check in next element
-                }
-		//if opcodes do not exist in entire list, add new node to end of list
-                prev->next = newnode;
-                newnode->next = NULL;
-                newnode->count = 1;
-                for(i=0; i<WindowSize ; i++)
-			newnode->Opcode[i] = op[i];
-                return;
-        }
+void HashTable::Insert(unsigned op[], std::string opnames[]){
+ Node newnode = new node;
+ Node top;
+ int index, i, flag = 1;
+ index = Hash(op);
+ //if node is NULL -> indicates empty list
+ if(table[index] == NULL){
+  //add newnode and copy all opcodes to it
+  table[index] = newnode;
+  newnode->next = NULL;
+  newnode->count = 1;
+  for(i=0; i<WindowSize ; i++)
+  {
+   newnode->Opcode[i] = op[i];
+   newnode->Name[i] = opnames[i];
+  }
+  return;
+ }
+ else
+ {
+  //if node contains certain other opcode values
+  Node prev;
+  top = table[index];
+  while(top != NULL){
+   //if current opcodes are found
+   flag = 1;
+   prev = top;
+   for(i=0; i<WindowSize; i++){
+    if(top->Opcode[i] != op[i]){
+     flag = 0;
+     break;
+    }
+   }
+   if(flag){
+    top->count++; //increment counter
+    return;
+   }
+   top = top->next; //if current opcodes are not found, check in next element
+  }
+  //if opcodes do not exist in entire list, add new node to end of list
+  prev->next = newnode;
+  newnode->next = NULL;
+  newnode->count = 1;
+  for(i=0; i<WindowSize ; i++)
+  {
+    newnode->Opcode[i] = op[i];
+    newnode->Name[i] = opnames[i];
+  }
+  return;
+ }
 }
 
 //display element in each node of the hash table if it is not NULL
-void HashTable::Display()
-{
-        int  i, newcount=0, total=0;
-        Node top;
-        for(i=0; i<50; i++)
-        {
-                top = table[i];
-                while(top!=NULL)
-                {
-			newcount++;
-			total+=top->count;
-                        errs()<<"\nNumber of occurences of ";
-			for(i=0; i<WindowSize ; i++)
-			{
-				//avoid extra comma during printing
-				if(i==WindowSize-1)
-					errs()<<top->Opcode[i];
-				else
-					errs()<<top->Opcode[i]<<", ";
-			}
-			errs()<<" is : "<<top->count;
-                        top = top->next;
-                }
-        }
-	errs()<<"\nNumber of unique opcode pairs is "<<newcount<<"\n Total number : "<<total<<"\n";
+void HashTable::Display(){
+ int  i, newcount=0, total=0;
+ Node top;
+ for(i=0; i<50; i++){
+  top = table[i];
+  while(top!=NULL){
+   newcount++;
+   total+=top->count;
+   errs()<<"\nNumber of occurences of ";
+   for(i=0; i<WindowSize ; i++){
+    //avoid extra comma during printing
+    if(i==WindowSize-1)
+     errs()<<top->Name[i];
+    else
+     errs()<<top->Name[i]<<", ";
+   }
+   errs()<<" is : "<<top->count;
+   top = top->next;
+  }
+ }
+ errs()<<"\nNumber of unique opcode pairs is "<<newcount<<"\n";
 }
 //mycode ends
 
@@ -173,7 +163,7 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
                        const ByteArrayTy &Bytes,
                        SourceMgr &SM, raw_ostream &Out,
                        MCStreamer &Streamer, bool InAtomicBlock,
-                       const MCSubtargetInfo &STI) {
+                       const MCSubtargetInfo &STI, const std::string &triplename, const Target &T) {
   ArrayRef<uint8_t> Data(Bytes.first.data(), Bytes.first.size());
 
   // Disassemble it to strings.
@@ -181,6 +171,7 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
   uint64_t Index;
 
   unsigned op[WindowSize];
+  std::string opcodeName[WindowSize];
   HashTable t;
   int cflag = 0, i; //cflag is the flag variable used to check the number of entries in op[] array
   for(i=0 ; i<WindowSize ; i++)
@@ -192,14 +183,16 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
 //if maximum opcodes are entered, then insert the opcodes 
     if(cflag == WindowSize)
     {
-	t.Insert(op);
+	t.Insert(op, opcodeName);
 	//get next three opcodes
 	cflag = WindowSize-1;
 	for(i=0; i<WindowSize-1; i++)
 	{
+		opcodeName[i] = opcodeName[i+1];
 		op[i] = op[i+1];
 	}
 	op[WindowSize-1]=0; 
+	opcodeName[WindowSize-1] = "\0";
     }
 
     MCDisassembler::DecodeStatus S;
@@ -227,11 +220,36 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
 
     case MCDisassembler::Success:
       Streamer.EmitInstruction(Inst, STI);
-      op[cflag++]=Inst.getOpcode(); //add opcodes to the op[] array
+
+	auto const MRI = T.createMCRegInfo(triplename);
+	if (!MRI) {
+   	 errs() << "error: no register info for target " << triplename << "\n";
+   	 return -1;
+ 	}
+
+	auto const MAI = T.createMCAsmInfo(*MRI, triplename);
+	if (!MAI) {
+	 errs() << "error: no assembly info for target " << triplename << "\n";
+	 return -1;
+	}
+
+	//const MCInstrInfo MII(T.createMCInstrInfo());
+	auto const MII = T.createMCInstrInfo();
+	if(!MII) {
+	 errs()<< "error: no instruction info for targe " << triplename << "\n";
+	 return -1;
+	}
+	Triple TheTriple(triplename);
+	unsigned int AsmPrinterVariant = MAI->getAssemblerDialect();
+	auto myinst= T.createMCInstPrinter(TheTriple, AsmPrinterVariant, *MAI,*MII,*MRI);
+	StringRef mystring;
+	mystring = myinst->getOpcodeName(Inst.getOpcode());
+	opcodeName[cflag] = mystring.str();
+        op[cflag++]=Inst.getOpcode(); //add opcodes to the op[] array
       break;
     }
   }
-  t.Insert(op); //to insert the last pair
+  t.Insert(op, opcodeName); //to insert the last pair
   t.Display();
   return false;
 }
@@ -358,7 +376,7 @@ int Disassembler::disassemble(const Target &T,
 
     if (!ByteArray.first.empty())
       ErrorOccurred |= PrintInsts(*DisAsm, ByteArray, SM, Out, Streamer,
-                                  InAtomicBlock, STI);
+                                  InAtomicBlock, STI, Triple, T);
   }
 
   if (InAtomicBlock) {
