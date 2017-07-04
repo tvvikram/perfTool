@@ -27,23 +27,36 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
-#define WindowSize 2 //use window size as bucket
+#define Window 10 //use window size as bucket
 using namespace llvm;
+
+//command line arguments used
+static cl::opt<unsigned>
+WindowSize(cl::Positional, cl::desc(" Window sized opcode counter"), cl::init(1));
+
+static cl::opt<bool>
+EnableOpcodeCount(cl::Positional, cl::desc(" Determines whether or not Opcode counter should be executed"), cl::init(true));
+
 
 //node structure for hash table
 struct node{
- unsigned Opcode[WindowSize]; 
- std::string Name[WindowSize];
+ std::vector<unsigned> Opcode; 
+ std::vector<std::string> Name;
  int count;
  node *next;
+ node()
+ {
+   Opcode.resize(WindowSize.getValue());
+   Name.resize(WindowSize.getValue());
+ }
 };
 typedef struct node *Node;
 
 class HashTable{
  Node table[50];
  public :
-  int Hash(unsigned[]);
-  void Insert(unsigned[], std::string[]);
+  int Hash(std::vector<unsigned>);
+  void Insert(std::vector<unsigned>, std::vector<std::string>);
   void Display();
   HashTable(){
     int i;
@@ -54,35 +67,41 @@ class HashTable{
 };
 
 //hash function
-int HashTable::Hash(unsigned Op[]){
- float sum[WindowSize], result=0,sumcount,prodsum, count[WindowSize];
- int res,j;
- unsigned newOp[WindowSize];
- for(j=0; j<WindowSize; j++){
+int HashTable::Hash(std::vector<unsigned> Op){
+ int result=0,sumcount,prodsum;
+ std::vector<int> count, sum;
+ unsigned j;
+ std::vector<unsigned> newOp;
+ count.resize(WindowSize.getValue());
+ sum.resize(WindowSize.getValue());
+ newOp.resize(WindowSize.getValue());
+ for(j=0; j<WindowSize.getValue(); j++){
   count[j]=0;
+  sum[j] = 0;
   newOp[j] = Op[j];
   while(newOp[j]!=0){
-   sum[j] = newOp[j]%10;
+   sum[j] += newOp[j]%10;
    newOp[j]/=10;
    count[j]++;
   }
  }
  sumcount = 0;
  prodsum = 1;
- for(j=0; j<WindowSize ; j++){
+ for(j=0; j<WindowSize.getValue(); j++){
   sumcount += count[j];
   prodsum *= sum[j];
  }
- res = prodsum/sumcount;
- res = floor(result);
- res %= 50;
- return res;//returns index
+ result = prodsum + sumcount;
+ 
+ result %= 47;
+ result += 3;
+ return result;//returns index
 }
 
-void HashTable::Insert(unsigned op[], std::string opnames[]){
+void HashTable::Insert(std::vector<unsigned> op, std::vector<std::string> opnames){
  Node newnode = new node;
  Node top;
- int index, i, flag = 1;
+ unsigned index, i, flag = 1;
  index = Hash(op);
  //if node is NULL -> indicates empty list
  if(table[index] == NULL){
@@ -90,7 +109,7 @@ void HashTable::Insert(unsigned op[], std::string opnames[]){
   table[index] = newnode;
   newnode->next = NULL;
   newnode->count = 1;
-  for(i=0; i<WindowSize ; i++)
+  for(i=0; i<WindowSize.getValue(); i++)
   {
    newnode->Opcode[i] = op[i];
    newnode->Name[i] = opnames[i];
@@ -106,7 +125,7 @@ void HashTable::Insert(unsigned op[], std::string opnames[]){
    //if current opcodes are found
    flag = 1;
    prev = top;
-   for(i=0; i<WindowSize; i++){
+   for(i=0; i<WindowSize.getValue(); i++){
     if(top->Opcode[i] != op[i]){
      flag = 0;
      break;
@@ -122,7 +141,7 @@ void HashTable::Insert(unsigned op[], std::string opnames[]){
   prev->next = newnode;
   newnode->next = NULL;
   newnode->count = 1;
-  for(i=0; i<WindowSize ; i++)
+  for(i=0; i<WindowSize.getValue() ; i++)
   {
     newnode->Opcode[i] = op[i];
     newnode->Name[i] = opnames[i];
@@ -133,21 +152,22 @@ void HashTable::Insert(unsigned op[], std::string opnames[]){
 
 //display element in each node of the hash table if it is not NULL
 void HashTable::Display(){
- int  i, newcount=0, total=0;
+ unsigned  i,j, newcount=0, total=0;
  Node top;
+// clrscr();
  for(i=0; i<50; i++){
   top = table[i];
   while(top!=NULL){
    newcount++;
    total+=top->count;
    errs()<<"\nNumber of occurences of ";
-   for(i=0; i<WindowSize ; i++){
-    //avoid extra comma during printing
-    if(i==WindowSize-1)
-     errs()<<top->Name[i];
+   for(j=0; j<WindowSize.getValue() ; j++){
+   //avoid extra comma during printing
+    if(j==WindowSize.getValue()-1)
+     errs()<<top->Name[j];
     else
-     errs()<<top->Name[i]<<", ";
-   }
+     errs()<<top->Name[j]<<", ";
+  }
    errs()<<" is : "<<top->count;
    top = top->next;
   }
@@ -170,30 +190,41 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
   uint64_t Size;
   uint64_t Index;
 
-  unsigned op[WindowSize];
-  std::string opcodeName[WindowSize];
-  HashTable t;
-  int cflag = 0, i; //cflag is the flag variable used to check the number of entries in op[] array
-  for(i=0 ; i<WindowSize ; i++)
-	op[i] = 0;
+  if(EnableOpcodeCount.getValue() == false && WindowSize.getValue() > 1)
+  {
+   errs()<<" Window Size used as 1. ";
+   WindowSize = 1;
+  }
 
-  for (Index = 0; Index < Bytes.first.size(); Index += Size) {
+  
+   std::vector<unsigned> op;
+   std::vector<std::string> opcodeName;
+   op.resize(WindowSize.getValue());
+   opcodeName.resize(WindowSize.getValue());
+
+   HashTable t;
+   unsigned cflag = 0, i; //cflag is the flag variable used to check the number of entries in op[] array
+   for(i=0 ; i<WindowSize.getValue() ; i++)
+     op[i] = 0;
+  
+   for (Index = 0; Index < Bytes.first.size(); Index += Size) {
     MCInst Inst;
-
+   
 //if maximum opcodes are entered, then insert the opcodes 
-    if(cflag == WindowSize)
-    {
-	t.Insert(op, opcodeName);
+      if(cflag == WindowSize.getValue())
+      {
+      	t.Insert(op, opcodeName);
 	//get next three opcodes
-	cflag = WindowSize-1;
-	for(i=0; i<WindowSize-1; i++)
+	cflag = WindowSize.getValue()-1;
+	for(i=0; i<WindowSize.getValue()-1; i++)
 	{
 		opcodeName[i] = opcodeName[i+1];
 		op[i] = op[i+1];
 	}
-	op[WindowSize-1]=0; 
-	opcodeName[WindowSize-1] = "\0";
-    }
+	op[WindowSize.getValue()-1]=0; 
+	opcodeName[WindowSize.getValue()-1] = "\0";
+      }
+   
 
     MCDisassembler::DecodeStatus S;
     S = DisAsm.getInstruction(Inst, Size, Data.slice(Index), Index,
@@ -220,7 +251,8 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
 
     case MCDisassembler::Success:
       Streamer.EmitInstruction(Inst, STI);
-
+      if(EnableOpcodeCount.getValue() == true)
+      {
 	auto const MRI = T.createMCRegInfo(triplename);
 	if (!MRI) {
    	 errs() << "error: no register info for target " << triplename << "\n";
@@ -246,11 +278,15 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
 	mystring = myinst->getOpcodeName(Inst.getOpcode());
 	opcodeName[cflag] = mystring.str();
         op[cflag++]=Inst.getOpcode(); //add opcodes to the op[] array
+      }
       break;
     }
   }
-  t.Insert(op, opcodeName); //to insert the last pair
-  t.Display();
+  if(EnableOpcodeCount.getValue() == true)
+  {
+    t.Insert(op, opcodeName); //to insert the last pair
+    t.Display();
+  }
   return false;
 }
 
